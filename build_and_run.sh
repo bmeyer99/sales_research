@@ -5,8 +5,7 @@
 # --- Configuration ---
 APP_DIR="sales_research_app"
 ENV_FILE="${APP_DIR}/.env"
-IMAGE_NAME="sales-research-assistant"
-CONTAINER_NAME="sales-research-assistant-container"
+# No longer needed as docker-compose handles naming
 
 # --- Helper Functions ---
 print_error() {
@@ -31,6 +30,13 @@ if ! command -v docker &> /dev/null; then
 fi
 print_success "Docker is installed."
 
+# 2. Check for Docker Compose
+if ! command -v docker compose &> /dev/null; then
+  print_error "Docker Compose (v2) could not be found. Please ensure Docker Compose is installed and available via 'docker compose'. (https://docs.docker.com/compose/install/)"
+  exit 1
+fi
+print_success "Docker Compose (v2) is installed."
+
 # Check if Docker daemon is running
 if ! docker info &> /dev/null; then
     print_error "Docker daemon is not running. Please start Docker."
@@ -38,8 +44,7 @@ if ! docker info &> /dev/null; then
 fi
 print_success "Docker daemon is running."
 
-
-# 2. Check for .env file
+# Check for .env file
 if [ ! -f "$ENV_FILE" ]; then
   print_error "$ENV_FILE not found. Please create it by copying from ${APP_DIR}/.env.example and filling in your credentials."
   print_info "See ${APP_DIR}/README.md for details on setting up credentials."
@@ -73,55 +78,40 @@ print_info "All prerequisites met. Proceeding..."
 
 print_info "--- Ensuring no old container is running ---"
 # Check if the container exists (running or stopped)
-if [ "$(docker ps -aq -f name=^/${CONTAINER_NAME}$)" ]; then
-    print_info "Found existing container '$CONTAINER_NAME'."
-    # Check if it's running
-    if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
-        print_info "Stopping running container '$CONTAINER_NAME'..."
-        if docker stop "$CONTAINER_NAME"; then
-            print_success "Container '$CONTAINER_NAME' stopped."
-        else
-            print_error "Failed to stop container '$CONTAINER_NAME'. It might be stuck. Manual intervention may be required. Continuing to attempt removal."
-        fi
-    fi
-    print_info "Removing container '$CONTAINER_NAME'..."
-    if docker rm "$CONTAINER_NAME"; then
-        print_success "Container '$CONTAINER_NAME' removed."
+# Use docker-compose to stop and remove existing containers
+if docker compose ps -q &> /dev/null; then
+    print_info "Stopping and removing existing Docker Compose services..."
+    if docker compose down; then
+        print_success "Docker Compose services stopped and removed."
     else
-        print_error "Failed to remove container '$CONTAINER_NAME'. It might have already been removed or is in a problematic state. Continuing..."
+        print_error "Failed to stop and remove Docker Compose services. Manual intervention may be required."
+        exit 1
     fi
 else
-    print_info "No existing container named '$CONTAINER_NAME' found. Good to go."
+    print_info "No existing Docker Compose services found. Good to go."
 fi
 print_info "--- Old container check complete ---"
 
-# Navigate to the app directory
-print_info "Navigating to $APP_DIR..."
-cd "$APP_DIR" || { print_error "Could not navigate to $APP_DIR directory."; exit 1; }
-
-# Build the Docker image
-print_info "Building Docker image '$IMAGE_NAME'..."
-if docker build -t "$IMAGE_NAME" .; then
-  print_success "Docker image '$IMAGE_NAME' built successfully."
+# Build and run the Docker container using docker-compose
+print_info "Building Docker image with Docker Buildx..."
+# The image is tagged as <project_name>_<service_name>:latest, which is sales-trainer_sales-research-app:latest
+# The project name 'sales-trainer' is derived from the directory where docker-compose is run.
+if docker buildx build --load -t sales-trainer_sales-research-app:latest -f ./sales_research_app/Dockerfile ./sales_research_app; then
+    print_success "Docker image 'sales-trainer_sales-research-app:latest' built successfully with Buildx."
 else
-  print_error "Docker image build failed."
-  cd .. # Navigate back to project root
+    print_error "Docker Buildx image build failed."
+    exit 1
+fi
+
+print_info "Starting Docker containers with docker-compose..."
+print_info "Application will be available via Traefik at research.no13productions.com (if configured in docker-compose.yml and Traefik)"
+if docker compose up -d; then # --build flag removed
+  print_success "Docker Compose services started successfully."
+  print_info "To view logs: docker compose logs -f"
+  print_info "To stop the services: docker compose down"
+else
+  print_error "Failed to start Docker Compose services."
   exit 1
 fi
 
-# Run the Docker container
-print_info "Running Docker container '$CONTAINER_NAME' from image '$IMAGE_NAME'..."
-print_info "Application will be available at http://localhost:8501"
-if docker run -d -p 8501:8501 --env-file .env --name "$CONTAINER_NAME" "$IMAGE_NAME"; then
-  print_success "Docker container '$CONTAINER_NAME' started successfully."
-  print_info "To view logs: docker logs -f $CONTAINER_NAME"
-  print_info "To stop the container: docker stop $CONTAINER_NAME"
-else
-  print_error "Failed to start Docker container '$CONTAINER_NAME'."
-  cd .. # Navigate back to project root
-  exit 1
-fi
-
-# Navigate back to project root
-cd ..
 print_info "Script finished."

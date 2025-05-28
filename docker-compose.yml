@@ -1,0 +1,28 @@
+services:
+  sales-research-app:
+    image: sales-trainer_sales-research-app:latest # Explicitly use the image built by buildx
+    build: ./sales_research_app
+    env_file:
+      - ./sales_research_app/.env
+    # ports:
+    #   - "8501:8501"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-research"
+      - "traefik.http.routers.research.entrypoints=http"
+      - "traefik.http.routers.research.rule=Host(`research.no13productions.com`)"
+      - "traefik.http.routers.research.middlewares=traefik-https-redirect"
+      - "traefik.http.routers.research-secure.entrypoints=https"
+      - "traefik.http.routers.research-secure.rule=Host(`research.no13productions.com`)"
+      - "traefik.http.routers.research-secure.middlewares=secure-headers,rate-limit,ssl-forwarder"
+      - "traefik.http.middlewares.ssl-forwarder.headers.customRequestHeaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.research-secure.tls=true"
+      - "traefik.http.routers.research-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.research-secure.tls.options=default"
+      - "traefik.http.services.research-secure.loadbalancer.server.port=8501"
+    networks:
+      - traefik-research
+
+networks:
+  traefik-research:
+    external: true
